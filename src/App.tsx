@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, FormEvent } from 'react'
 import { 
   Search, Navigation, Wind, Droplets, Sun, Thermometer, 
   Cloud, CloudRain, CloudSnow, CloudLightning, CloudFog,
-  MapPin, Clock, Globe, ChevronRight, X, ArrowLeft, Eye, Gauge
+  MapPin, Clock, Globe, ChevronRight, X, ArrowLeft, Eye, Gauge, Settings
 } from 'lucide-react'
 import './App.css'
 
@@ -27,6 +27,8 @@ interface DailyForecast {
 
 interface WeatherData {
   city: string;
+  lat: number;
+  lon: number;
   temp: number;
   tempMax: number;
   tempMin: number;
@@ -86,6 +88,8 @@ const weatherCodeMap: Record<number, { desc: string, icon: any, bg: string }> = 
 
 function App() {
   const [city, setCity] = useState('')
+  const [unitSystem, setUnitSystem] = useState<'metric' | 'imperial'>('metric')
+  const [showSettings, setShowSettings] = useState(false)
   const [weather, setWeather] = useState<WeatherData | null>(null)
   const [featuredWeather, setFeaturedWeather] = useState<FeaturedCityData[]>([])
   const [localWeather, setLocalWeather] = useState<FeaturedCityData | null>(null)
@@ -106,8 +110,9 @@ function App() {
 
   useEffect(() => {
     const fetchAllData = async () => {
+      const tempUnit = unitSystem === 'metric' ? 'celsius' : 'fahrenheit';
       const promises = FEATURED_CITIES.map(async (c) => {
-        const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${c.lat}&longitude=${c.lon}&current=temperature_2m,weather_code`)
+        const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${c.lat}&longitude=${c.lon}&current=temperature_2m,weather_code&temperature_unit=${tempUnit}`)
         const data = await res.json()
         return { ...c, temp: data.current.temperature_2m, weatherCode: data.current.weather_code }
       })
@@ -117,7 +122,7 @@ function App() {
       if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(async (pos) => {
           const { latitude: lat, longitude: lon } = pos.coords
-          const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code`)
+          const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,weather_code&temperature_unit=${tempUnit}`)
           const data = await res.json()
           setLocalWeather({
             name: 'Your Location',
@@ -132,13 +137,17 @@ function App() {
       }
     }
     fetchAllData()
-  }, [])
+  }, [unitSystem])
 
   const fetchWeatherByCoords = async (lat: number, lon: number, cityName: string) => {
     setLoading(true); setError(null); setShowSuggestions(false); setCity('');
+    const tempUnit = unitSystem === 'metric' ? 'celsius' : 'fahrenheit';
+    const windUnit = unitSystem === 'metric' ? 'kmh' : 'mph';
+    const precipUnit = unitSystem === 'metric' ? 'mm' : 'inch';
+    
     try {
       const res = await fetch(
-        `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,surface_pressure,visibility&hourly=temperature_2m,weather_code,wind_speed_10m,uv_index,apparent_temperature,relative_humidity_2m,visibility,surface_pressure&daily=weather_code,temperature_2m_max,temperature_2m_min,uv_index_max&timezone=auto`
+        `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,surface_pressure,visibility&hourly=temperature_2m,weather_code,wind_speed_10m,uv_index,apparent_temperature,relative_humidity_2m,visibility,surface_pressure&daily=weather_code,temperature_2m_max,temperature_2m_min,uv_index_max&timezone=auto&temperature_unit=${tempUnit}&wind_speed_unit=${windUnit}&precipitation_unit=${precipUnit}`
       )
       const data = await res.json()
       
@@ -150,16 +159,20 @@ function App() {
         uvIndex: data.hourly.uv_index[i],
         feelsLike: data.hourly.apparent_temperature[i],
         humidity: data.hourly.relative_humidity_2m[i],
-        visibility: data.hourly.visibility[i] / 1000,
-        pressure: data.hourly.surface_pressure[i]
+        visibility: unitSystem === 'metric' ? data.hourly.visibility[i] / 1000 : (data.hourly.visibility[i] / 1000) * 0.621371,
+        pressure: unitSystem === 'metric' ? data.hourly.surface_pressure[i] : data.hourly.surface_pressure[i] * 0.02953
       }))
 
       const now = new Date();
       const currentHourStr = now.toISOString().split(':')[0] + ':00';
       const startIndex = data.hourly.time.findIndex((t: string) => t.startsWith(currentHourStr)) || 0;
       
+      const tempSymbol = unitSystem === 'metric' ? '°C' : '°F';
+
       setWeather({
         city: cityName,
+        lat,
+        lon,
         temp: data.current.temperature_2m,
         tempMax: data.daily.temperature_2m_max[0],
         tempMin: data.daily.temperature_2m_min[0],
@@ -168,11 +181,11 @@ function App() {
         precipitation: data.current.precipitation,
         uvIndex: data.daily.uv_index_max[0],
         humidity: data.current.relative_humidity_2m,
-        visibility: data.current.visibility / 1000,
-        pressure: data.current.surface_pressure,
+        visibility: unitSystem === 'metric' ? data.current.visibility / 1000 : (data.current.visibility / 1000) * 0.621371,
+        pressure: unitSystem === 'metric' ? data.current.surface_pressure : data.current.surface_pressure * 0.02953,
         weatherCode: data.current.weather_code,
         description: weatherCodeMap[data.current.weather_code]?.desc || 'Unknown',
-        summary: `Today will be ${data.daily.temperature_2m_max[0] > 25 ? 'warm' : 'cool'} and ${weatherCodeMap[data.current.weather_code]?.desc.toLowerCase()}, with a high of ${Math.round(data.daily.temperature_2m_max[0])}°C.`,
+        summary: `Today will be ${data.daily.temperature_2m_max[0] > (unitSystem === 'metric' ? 25 : 77) ? 'warm' : 'cool'} and ${weatherCodeMap[data.current.weather_code]?.desc.toLowerCase()}, with a high of ${Math.round(data.daily.temperature_2m_max[0])}${tempSymbol}.`,
         hourly: allHourly.slice(startIndex, startIndex + 24),
         daily: data.daily.time.map((time: string, i: number) => ({
           date: time, tempMax: data.daily.temperature_2m_max[i], tempMin: data.daily.temperature_2m_min[i], weatherCode: data.daily.weather_code[i]
@@ -182,6 +195,12 @@ function App() {
       window.scrollTo({ top: 0, behavior: 'smooth' })
     } catch (err) { setError('Failed to fetch weather.') } finally { setLoading(false) }
   }
+
+  useEffect(() => {
+    if (weather) {
+      fetchWeatherByCoords(weather.lat, weather.lon, weather.city)
+    }
+  }, [unitSystem])
 
   const handleMouseDown = (e: React.MouseEvent) => {
     const slider = e.currentTarget as HTMLDivElement;
@@ -231,7 +250,20 @@ function App() {
     <div className={`app-container ${weather ? weatherCodeMap[weather.weatherCode]?.bg : 'default'}`}>
       <div className="content-wrapper">
         <header>
-          <h1 onClick={goHome} className="logo-text">Weather</h1>
+          <div className="header-left">
+            <h1 onClick={goHome} className="logo-text">Weather</h1>
+            <div className="settings-container">
+              <button className="settings-btn" onClick={() => setShowSettings(!showSettings)}>
+                <Settings size={26} />
+              </button>
+              {showSettings && (
+                <div className="settings-dropdown">
+                  <div className={`unit-option ${unitSystem === 'metric' ? 'active' : ''}`} onClick={() => { setUnitSystem('metric'); setShowSettings(false); }}>Metric (°C, km/h)</div>
+                  <div className={`unit-option ${unitSystem === 'imperial' ? 'active' : ''}`} onClick={() => { setUnitSystem('imperial'); setShowSettings(false); }}>Imperial (°F, mph)</div>
+                </div>
+              )}
+            </div>
+          </div>
           <div className="search-container">
             <form className="search-bar" onSubmit={(e) => e.preventDefault()}>
               <Search size={20} />
@@ -265,13 +297,13 @@ function App() {
               {localWeather && (
                 <div className={`city-tile local ${weatherCodeMap[localWeather.weatherCode]?.bg}`} onClick={() => fetchWeatherByCoords(localWeather.lat, localWeather.lon, localWeather.name)}>
                   <div className="tile-header"><span>Your Location</span><Navigation size={20} /></div>
-                  <div className="tile-body"><span className="tile-temp">{Math.round(localWeather.temp)}°C</span><span className="tile-desc">{weatherCodeMap[localWeather.weatherCode]?.desc}</span></div>
+                  <div className="tile-body"><span className="tile-temp">{Math.round(localWeather.temp)}{unitSystem === 'metric' ? '°C' : '°F'}</span><span className="tile-desc">{weatherCodeMap[localWeather.weatherCode]?.desc}</span></div>
                 </div>
               )}
               {featuredWeather.map(c => (
                 <div key={c.name} className={`city-tile ${weatherCodeMap[c.weatherCode]?.bg}`} onClick={() => fetchWeatherByCoords(c.lat, c.lon, c.name)}>
                   <div className="tile-header"><span>{c.name}</span><Globe size={20} /></div>
-                  <div className="tile-body"><span className="tile-temp">{Math.round(c.temp)}°C</span><span className="tile-desc">{weatherCodeMap[c.weatherCode]?.desc}</span></div>
+                  <div className="tile-body"><span className="tile-temp">{Math.round(c.temp)}{unitSystem === 'metric' ? '°C' : '°F'}</span><span className="tile-desc">{weatherCodeMap[c.weatherCode]?.desc}</span></div>
                 </div>
               ))}
             </div>
@@ -331,7 +363,7 @@ function App() {
             </section>
 
             <div className="stats-grid">
-              <div className="stat-tile square clickable" onClick={() => openMetricDetails('Feels Like', Thermometer, '°', 'feelsLike')}>
+              <div className="stat-tile square clickable" onClick={() => openMetricDetails('Feels Like', Thermometer, unitSystem === 'metric' ? '°' : '°', 'feelsLike')}>
                 <div className="stat-label"><Thermometer size={14} /> FEELS LIKE</div>
                 <div className="stat-value">{Math.round(weather.feelsLike)}°</div>
                 <div className="stat-footer">Wind is making it feel colder.</div>
@@ -346,19 +378,19 @@ function App() {
                 <div className="stat-value">{weather.humidity}%</div>
                 <div className="stat-footer">The dew point is {Math.round(weather.temp - (100 - weather.humidity) / 5)}° right now.</div>
               </div>
-              <div className="stat-tile square clickable" onClick={() => openMetricDetails('Wind Speed', Wind, 'km/h', 'windSpeed')}>
+              <div className="stat-tile square clickable" onClick={() => openMetricDetails('Wind Speed', Wind, unitSystem === 'metric' ? ' km/h' : ' mph', 'windSpeed')}>
                 <div className="stat-label"><Wind size={14} /> WIND</div>
-                <div className="stat-value">{weather.windSpeed} <small>km/h</small></div>
+                <div className="stat-value">{weather.windSpeed} <small>{unitSystem === 'metric' ? 'km/h' : 'mph'}</small></div>
                 <div className="stat-footer">Direction: West</div>
               </div>
-              <div className="stat-tile square clickable" onClick={() => openMetricDetails('Visibility', Eye, ' km', 'visibility')}>
+              <div className="stat-tile square clickable" onClick={() => openMetricDetails('Visibility', Eye, unitSystem === 'metric' ? ' km' : ' mi', 'visibility')}>
                 <div className="stat-label"><Eye size={14} /> VISIBILITY</div>
-                <div className="stat-value">{weather.visibility} <small>km</small></div>
+                <div className="stat-value">{Math.round(weather.visibility)} <small>{unitSystem === 'metric' ? 'km' : 'mi'}</small></div>
                 <div className="stat-footer">Clear view.</div>
               </div>
-              <div className="stat-tile square clickable" onClick={() => openMetricDetails('Pressure', Gauge, ' hPa', 'pressure')}>
+              <div className="stat-tile square clickable" onClick={() => openMetricDetails('Pressure', Gauge, unitSystem === 'metric' ? ' hPa' : ' inHg', 'pressure')}>
                 <div className="stat-label"><Gauge size={14} /> PRESSURE</div>
-                <div className="stat-value">{weather.pressure} <small>hPa</small></div>
+                <div className="stat-value">{weather.pressure.toFixed(unitSystem === 'metric' ? 0 : 2)} <small>{unitSystem === 'metric' ? 'hPa' : 'inHg'}</small></div>
                 <div className="stat-footer">Stable.</div>
               </div>
             </div>
